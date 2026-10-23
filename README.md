@@ -209,7 +209,7 @@ jupyter notebook CarPricePrediction.ipynb
 
 **Shaikh Danish Shaikh Umar Farooq**
 
-### Oasis Infobyte Data Science Internship
+[LinkedIn](https://linkedin.com/in/shaikh-danish-70879328a)
 
 
 ---
