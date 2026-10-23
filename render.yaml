@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: car-price-prediction
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: pip install -r web-requirements.txt
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 120 app:app
+    healthCheckPath: /
+    autoDeployTrigger: commit

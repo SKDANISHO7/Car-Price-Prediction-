@@ -176,6 +176,12 @@ python app.py
 
 The app reads `dataset/car_data.csv`, compares four models on a fixed 80/20 holdout split on first load, and saves the selected prediction pipeline to `outputs/web_car_price_pipeline.joblib`. Predictions report estimated prices in ₹ lakh. Keep the terminal running while using the site; press `Ctrl+C` to stop it.
 
+### Publish a live website
+
+This is a Flask app, so it needs a web service host to provide a public website link. The repository includes a Render Blueprint configured for the `main` branch. To deploy it, open [Render](https://render.com/), sign in, choose **New → Blueprint**, connect this GitHub repository, and deploy the `car-price-prediction` service. Render will build and start the app using `render.yaml`; when deployment finishes, open the generated `onrender.com` URL in Chrome or share it with others. The free service may take a short time to wake after inactivity.
+
+You can also use the [Render Flask deployment guide](https://render.com/docs/deploy-flask) if you prefer to configure a web service manually. Set the build command to `pip install -r web-requirements.txt` and the start command to `gunicorn --workers 1 --threads 4 --timeout 120 app:app`.
+
 ### Run the standalone analysis script
 
 ```bash
