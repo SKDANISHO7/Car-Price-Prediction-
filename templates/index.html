@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101916">
+  <title>Carwise — Used car valuation</title>
+  <script>try { if (localStorage.getItem('carwise-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (_) {}</script>
+  <link rel="stylesheet" href="/static/styles.css?v=9">
+  <link rel="stylesheet" href="/static/theme.css?v=1">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#home"><span class="brand-mark">C</span><span>carwise<span class="brand-dot">.</span><small>PRICE INTELLIGENCE</small></span></a>
+      <div class="side-label">WORKSPACE</div>
+      <nav>
+        <a class="nav-link active" href="#home"><span>⌂</span> Overview</a>
+        <a class="nav-link" href="#estimate"><span>↗</span> Price estimator</a>
+        <a class="nav-link" href="#insights"><span>▥</span> Market insights</a>
+        <a class="nav-link" href="#models"><span>◈</span> Model performance</a>
+      </nav>
+      <div class="sidebar-bottom"><div class="live-dot"></div><div><b>Model system online</b><small>Local dataset · <span id="year-display"></span></small></div></div>
+    </aside>
+    <main id="home">
+      <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <b>Overview</b></div><div class="top-right"><span class="dataset-tag"><i></i> CAR DATASET</span><button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme" aria-pressed="false" title="Switch theme"><span id="theme-icon" aria-hidden="true">☾</span><span id="theme-label">Dark</span></button><div class="avatar">DS</div></div></header>
+      <div id="backend-notice" class="backend-notice" hidden><strong>The Flask app is required for live data and predictions.</strong> Start it with <code>run_web.bat</code> and open <a href="http://127.0.0.1:5000">http://127.0.0.1:5000</a>.</div>
+      <section class="hero">
+        <div><div class="eyebrow"><span></span> PRE-OWNED MARKET INTELLIGENCE</div><h1>Know what your car<br>is <em>really worth.</em></h1><p>Data-backed valuations powered by a machine learning model trained on real market listings.</p><a href="#estimate" class="primary-button">Estimate a car price <span>↗</span></a></div>
+        <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-glow"></div><div class="car-icon">🚘</div><div class="art-caption"><span>MARKET SIGNAL</span><b>Precision meets possibility</b></div></div>
+      </section>
+      <section class="stats-grid" id="overview-stats">
+        <article class="stat-card"><div class="stat-heading">LISTINGS ANALYZED <span class="stat-icon">▤</span></div><div class="stat-value" id="records">—</div><div class="stat-foot"><span class="accent">●</span> Cleaned vehicle records</div></article>
+        <article class="stat-card"><div class="stat-heading">AVERAGE SELLING PRICE <span class="stat-icon">₹</span></div><div class="stat-value">₹<span id="average">—</span><small> lakh</small></div><div class="stat-foot">Across all listings in dataset</div></article>
+        <article class="stat-card"><div class="stat-heading">MEDIAN SELLING PRICE <span class="stat-icon">⌁</span></div><div class="stat-value">₹<span id="median">—</span><small> lakh</small></div><div class="stat-foot">Typical market transaction</div></article>
+        <article class="stat-card"><div class="stat-heading">AVERAGE VEHICLE AGE <span class="stat-icon">◷</span></div><div class="stat-value"><span id="age">—</span><small> yrs</small></div><div class="stat-foot">Based on vehicle model year</div></article>
+      </section>
+      <section class="content-grid" id="insights">
+        <article class="panel chart-panel"><div class="panel-head"><div><div class="eyebrow">MARKET OVERVIEW</div><h2>Price by model year</h2></div><span class="unit-chip">MEDIAN · ₹ LAKH</span></div><div class="chart-wrap"><canvas id="yearChart" aria-label="Median selling price by year"></canvas></div><div class="chart-note"><span class="accent">●</span> Median selling price for each manufacturing year</div></article>
+        <article class="panel fuel-panel"><div class="panel-head"><div><div class="eyebrow">FUEL MIX</div><h2>Listings by fuel</h2></div><span class="more">•••</span></div><div id="fuel-list" class="fuel-list"><div class="loading">Loading market data…</div></div><div class="panel-foot">Share of vehicles in the dataset</div></article>
+      </section>
+      <section class="content-grid lower-grid">
+        <article class="panel brands-panel"><div class="panel-head"><div><div class="eyebrow">POPULAR MODELS</div><h2>Most represented model names</h2></div><span class="small-muted">BY LISTING COUNT</span></div><div id="brands" class="brand-list"></div></article>
+        <article class="panel model-panel" id="models"><div class="panel-head"><div><div class="eyebrow">MODEL HEALTH</div><h2>Performance snapshot</h2></div><span class="status-pill"><i></i> READY</span></div><p class="model-copy">Four regression approaches are compared on the same holdout split. The highest-scoring model powers your estimates.</p><div id="best-model" class="best-model"><span class="spinner"></span> Training models on first load…</div><a class="text-link" href="#comparison">View model comparison <span>→</span></a></article>
+      </section>
+      <section class="panel comparison-panel" id="comparison"><div class="panel-head"><div><div class="eyebrow">BENCHMARK</div><h2>Model comparison</h2></div><span class="unit-chip">80 / 20 HOLDOUT</span></div><div class="table-scroll"><table><thead><tr><th>MODEL</th><th>MEAN ABSOLUTE ERROR <span title="Average absolute prediction error, in lakh">ⓘ</span></th><th>ROOT MEAN SQUARED ERROR <span title="Penalizes larger errors, in lakh">ⓘ</span></th><th>R² SCORE <span title="Explained variance; higher is better">ⓘ</span></th><th>STATUS</th></tr></thead><tbody id="model-rows"><tr><td colspan="5" class="loading">Training models…</td></tr></tbody></table></div><div class="table-foot">Metrics are calculated on a held-out 20% sample. Values are expressed in ₹ lakh.</div></section>
+      <section class="panel estimator" id="estimate"><div class="estimator-intro"><div class="eyebrow">INSTANT VALUATION</div><h2>Find your car’s<br><em>market value.</em></h2><p>Enter the vehicle details to get an estimated selling price.</p><div class="estimate-note"><span>✦</span><div><b>A smarter starting point</b><small>Use this estimate as a guide when buying or selling.</small></div></div></div>
+        <form id="estimate-form" class="estimate-form">
+          <label class="field wide"><span>CAR MODEL / NAME</span><input name="brand" list="brand-options" placeholder="e.g. City, Swift, Corolla" required><datalist id="brand-options"></datalist></label>
+          <label class="field"><span>MODEL YEAR</span><input name="year" type="number" min="1950" placeholder="e.g. 2017" required></label>
+          <label class="field"><span>CURRENT SHOWROOM PRICE <small>₹ LAKH</small></span><input name="present_price" type="number" min="0.1" step="0.01" placeholder="e.g. 8.5" required></label>
+          <label class="field"><span>KILOMETERS DRIVEN</span><input name="kms_driven" type="number" min="0" step="1" placeholder="e.g. 35000" required></label>
+          <label class="field"><span>PREVIOUS OWNERS</span><select name="owner" required><option value="" selected disabled>Select owner count</option><option value="0">First owner</option><option value="1">1 previous owner</option><option value="2">2 previous owners</option><option value="3">3 previous owners</option><option value="4">4 previous owners</option></select></label>
+          <label class="field"><span>FUEL TYPE</span><select name="fuel_type" id="fuel-select" data-placeholder="Select fuel type" required><option value="" selected disabled>Select fuel type</option></select></label>
+          <label class="field"><span>SELLER TYPE</span><select name="seller_type" id="seller-select" data-placeholder="Select seller type" required><option value="" selected disabled>Select seller type</option></select></label>
+          <label class="field"><span>TRANSMISSION</span><select name="transmission" id="transmission-select" data-placeholder="Select transmission" required><option value="" selected disabled>Select transmission</option></select></label>
+          <div class="form-actions"><button type="submit" class="primary-button" id="predict-button" disabled>Calculate estimate <span>↗</span></button><span class="form-hint" id="form-hint">Fill every field; estimate updates automatically.</span></div>
+          <div id="prediction-result" class="prediction-result" aria-live="polite"></div>
+        </form>
+      </section>
+      <footer><a class="brand footer-brand" href="#home"><span class="brand-mark">C</span><span>carwise<span class="brand-dot">.</span></span></a><span>Machine learning for a more confident car decision.</span><span>Built on your local project dataset</span></footer>
+    </main>
+  </div>
+  <script src="/static/app.js?v=11"></script>
+</body>
+</html>

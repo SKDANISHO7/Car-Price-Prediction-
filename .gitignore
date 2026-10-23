@@ -1,0 +1,27 @@
+# Python environments
+venv/
+.venv/
+.venv-web/
+
+# Python cache and tooling
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Local secrets and environment settings
+.env
+.env.*
+!.env.example
+
+# Generated model artifacts and visualizations (recreated by the app/notebook)
+outputs/*
+!outputs/.gitkeep
+*.joblib
+*.pkl
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
