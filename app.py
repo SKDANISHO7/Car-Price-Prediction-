@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -31,6 +32,8 @@ FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 _state: dict = {}
+_state_lock = threading.Lock()
+_models_lock = threading.Lock()
 
 
 def load_data() -> pd.DataFrame:
@@ -56,13 +59,31 @@ def make_pipeline(estimator) -> Pipeline:
     return Pipeline([("preprocessing", preprocessing), ("regressor", estimator)])
 
 
-def get_state() -> dict:
-    """Load data and train/cache the models on the first request."""
+def _load_state() -> dict:
+    """Load the saved prediction pipeline, training it only if unavailable."""
     if _state:
         return _state
     df = load_data()
     X = df[FEATURES]
     y = df["Selling_Price"]
+    model = None
+    best_name = None
+    if MODEL_PATH.exists():
+        try:
+            cached_model = joblib.load(MODEL_PATH)
+            if list(cached_model.feature_names_in_) == FEATURES:
+                cached_model.predict(X.iloc[:1])
+                model = cached_model
+                model_names = {
+                    "RandomForestRegressor": "Random Forest",
+                    "GradientBoostingRegressor": "Gradient Boosting",
+                    "DecisionTreeRegressor": "Decision Tree",
+                    "LinearRegression": "Linear Regression",
+                }
+                best_name = model_names.get(type(cached_model.named_steps["regressor"]).__name__, "Saved model")
+        except Exception as exc:
+            app.logger.warning("Saved prediction pipeline could not be loaded; retraining: %s", exc)
+            model = None
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
@@ -72,25 +93,35 @@ def get_state() -> dict:
         "Decision Tree": lambda: DecisionTreeRegressor(random_state=42),
         "Linear Regression": LinearRegression,
     }
-    rows = []
-    for name, factory in factories.items():
-        model = make_pipeline(factory())
-        model.fit(X_train, y_train)
-        pred = model.predict(X_test)
-        rows.append({
-            "name": name,
-            "mae": float(mean_absolute_error(y_test, pred)),
-            "rmse": float(np.sqrt(mean_squared_error(y_test, pred))),
-            "r2": float(r2_score(y_test, pred)),
-        })
-    rows.sort(key=lambda row: row["r2"], reverse=True)
-    best_name = rows[0]["name"]
-    best_model = make_pipeline(factories[best_name]())
-    best_model.fit(X, y)
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(best_model, MODEL_PATH)
-    _state.update({"df": df, "models": rows, "best_name": best_name, "model": best_model})
+    if model is None:
+        rows = []
+        for name, factory in factories.items():
+            candidate = make_pipeline(factory())
+            candidate.fit(X_train, y_train)
+            pred = candidate.predict(X_test)
+            rows.append({
+                "name": name,
+                "mae": float(mean_absolute_error(y_test, pred)),
+                "rmse": float(np.sqrt(mean_squared_error(y_test, pred))),
+                "r2": float(r2_score(y_test, pred)),
+            })
+        rows.sort(key=lambda row: row["r2"], reverse=True)
+        best_name = rows[0]["name"]
+        model = make_pipeline(factories[best_name]())
+        model.fit(X, y)
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(model, MODEL_PATH)
+    else:
+        rows = None
+    _state.update({"df": df, "models": rows, "best_name": best_name, "model": model,
+                   "factories": factories, "split": (X_train, X_test, y_train, y_test)})
     return _state
+
+
+def get_state() -> dict:
+    """Initialize the shared data/model state once, even under concurrent requests."""
+    with _state_lock:
+        return _load_state()
 
 
 @app.get("/")
@@ -105,6 +136,7 @@ def overview():
         df = state["df"]
         return jsonify({
             "records": int(len(df)),
+            "best_model": state["best_name"],
             "average_price": round(float(df["Selling_Price"].mean()), 2),
             "median_price": round(float(df["Selling_Price"].median()), 2),
             "average_age": round(float(df["Car_Age"].mean()), 1),
@@ -112,12 +144,22 @@ def overview():
                 key: sorted(df[key].dropna().unique().tolist())
                 for key in ["Fuel_Type", "Seller_Type", "Transmission"]
             },
+            "owner_counts": sorted(int(value) for value in df["Owner"].unique()),
             "fuel_counts": df["Fuel_Type"].value_counts().to_dict(),
             "year_prices": [
                 {"year": int(year), "price": round(float(price), 2)}
                 for year, price in df.groupby("Year")["Selling_Price"].median().items()
             ],
             "top_brands": df.groupby("Brand").size().sort_values(ascending=False).head(8).to_dict(),
+            "examples": [
+                {
+                    "brand": row.Brand, "year": int(row.Year),
+                    "present_price": float(row.Present_Price), "kms_driven": int(row.Kms_Driven),
+                    "owner": int(row.Owner), "fuel_type": row.Fuel_Type,
+                    "seller_type": row.Seller_Type, "transmission": row.Transmission,
+                }
+                for row in df.drop_duplicates("Car_Name").head(3).itertuples()
+            ],
         })
     except Exception as exc:
         app.logger.exception("Could not build project overview")
@@ -128,6 +170,22 @@ def overview():
 def models():
     try:
         state = get_state()
+        with _models_lock:
+            if state["models"] is None:
+                X_train, X_test, y_train, y_test = state["split"]
+                rows = []
+                for name, factory in state["factories"].items():
+                    candidate = make_pipeline(factory())
+                    candidate.fit(X_train, y_train)
+                    pred = candidate.predict(X_test)
+                    rows.append({
+                        "name": name,
+                        "mae": float(mean_absolute_error(y_test, pred)),
+                        "rmse": float(np.sqrt(mean_squared_error(y_test, pred))),
+                        "r2": float(r2_score(y_test, pred)),
+                    })
+                rows.sort(key=lambda row: row["r2"], reverse=True)
+                state["models"] = rows
         return jsonify({"models": state["models"], "best_model": state["best_name"]})
     except Exception as exc:
         app.logger.exception("Could not train models")
@@ -167,13 +225,15 @@ def predict():
         kms = read_number("kms_driven")
         if not (1950 <= year <= CURRENT_YEAR):
             raise ValueError(f"Year must be between 1950 and {CURRENT_YEAR}.")
-        if present_price <= 0 or kms < 0 or owner < 0 or owner > 5:
-            raise ValueError("Enter a positive current price, nonnegative mileage, and 0–5 previous owners.")
+        if present_price <= 0 or kms < 0:
+            raise ValueError("Enter a positive current price and nonnegative mileage.")
         name_parts = str(payload["brand"]).strip().split()
         if not name_parts:
             raise ValueError("Enter the car model or name.")
         brand = name_parts[0].title()
         state = get_state()
+        if owner not in set(int(value) for value in state["df"]["Owner"].unique()):
+            raise ValueError("Choose a previous-owner count found in the dataset.")
         for field, column in [("fuel_type", "Fuel_Type"), ("seller_type", "Seller_Type"), ("transmission", "Transmission")]:
             value = str(payload[field]).strip().title()
             if value not in set(state["df"][column].unique()):
@@ -189,7 +249,16 @@ def predict():
             "Brand": brand,
         }], columns=FEATURES)
         result = float(state["model"].predict(row)[0])
-        return jsonify({"price": round(max(0, result), 2), "currency": "INR lakh", "model": state["best_name"]})
+        return jsonify({
+            "price": round(max(0, result), 2), "currency": "INR lakh", "model": state["best_name"],
+            "used": {
+                "car": str(payload["brand"]).strip(), "year": year,
+                "showroom_price_lakh": present_price, "kilometers": kms, "owners": owner,
+                "fuel": str(payload["fuel_type"]).strip().title(),
+                "seller": str(payload["seller_type"]).strip().title(),
+                "transmission": str(payload["transmission"]).strip().title(),
+            },
+        })
     except (KeyError, TypeError, ValueError) as exc:
         return jsonify({"error": str(exc) or "Please check the values and try again."}), 400
     except Exception as exc:

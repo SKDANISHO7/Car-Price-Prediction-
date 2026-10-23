@@ -71,10 +71,17 @@ function renderOverview(data) {
   $('#average').textContent = money(data.average_price);
   $('#median').textContent = money(data.median_price);
   $('#age').textContent = data.average_age;
+  $('#best-model').innerHTML = `<span class="accent">✦</span> Prediction model: <strong>${escapeHtml(data.best_model)}</strong> <span class="top-badge">SAVED PIPELINE</span>`;
   fillSelect('#fuel-select', data.categories.Fuel_Type);
   fillSelect('#seller-select', data.categories.Seller_Type);
   fillSelect('#transmission-select', data.categories.Transmission);
+  $('#owner-select').innerHTML = '<option value="" selected disabled>Select owner count</option>' +
+    data.owner_counts.map((count) => `<option value="${count}">${count === 0 ? 'First owner' : `${count} previous owner${count === 1 ? '' : 's'}`}</option>`).join('');
   $('#brand-options').innerHTML = Object.keys(data.top_brands).map(b => `<option value="${escapeHtml(b)}"></option>`).join('');
+  $('#assistant-examples').innerHTML = data.examples.map((example, index) => `<button type="button" class="example-chip" data-example="${index}">Estimate a ${escapeHtml(example.year)} ${escapeHtml(example.brand)}</button>`).join('');
+  $('#assistant-examples').querySelectorAll('[data-example]').forEach((button) => {
+    button.addEventListener('click', () => useExample(data.examples[Number(button.dataset.example)]));
+  });
   const fuelEntries = Object.entries(data.fuel_counts).sort((a,b) => b[1]-a[1]);
   const total = fuelEntries.reduce((sum, row) => sum + row[1], 0);
   $('#fuel-list').innerHTML = fuelEntries.map(([name,count],i) => `<div class="fuel-row"><div class="fuel-row-head"><span>${escapeHtml(name)}</span><span>${count} listings · ${Math.round(count/total*100)}%</span></div><div class="fuel-track"><div class="fuel-fill" style="width:${count/total*100}%;background:${palette[i%palette.length]}"></div></div></div>`).join('');
@@ -82,55 +89,108 @@ function renderOverview(data) {
   drawYearChart(data.year_prices);
 }
 function renderModels(data) {
-  const best = data.models[0];
-  $('#best-model').innerHTML = `<span class="accent">✦</span> Best fit: <strong>${escapeHtml(data.best_model)}</strong> <span class="top-badge">R² ${best.r2.toFixed(3)}</span>`;
-  $('#model-rows').innerHTML = data.models.map((m,i) => `<tr><td>${escapeHtml(m.name)}${i===0?'<span class="top-badge">BEST FIT</span>':''}</td><td>₹${money(m.mae)}</td><td>₹${money(m.rmse)}</td><td>${m.r2.toFixed(3)}</td><td>${i===0?'<span class="status-pill"><i></i> SELECTED</span>':'<span class="small-muted">EVALUATED</span>'}</td></tr>`).join('');
+  const selectedMetrics = data.models.find((model) => model.name === data.best_model);
+  const score = selectedMetrics ? `HOLDOUT R² ${selectedMetrics.r2.toFixed(3)}` : 'SAVED PIPELINE';
+  $('#best-model').innerHTML = `<span class="accent">✦</span> Prediction model: <strong>${escapeHtml(data.best_model)}</strong> <span class="top-badge">${score}</span>`;
+  $('#model-rows').innerHTML = data.models.map((model, index) => {
+    const selected = model.name === data.best_model;
+    const leader = index === 0;
+    const badge = selected ? '<span class="top-badge">PREDICTION MODEL</span>' : (leader ? '<span class="top-badge">HOLDOUT LEADER</span>' : '');
+    const status = selected ? '<span class="status-pill"><i></i> USED</span>' : '<span class="small-muted">EVALUATED</span>';
+    return `<tr><td>${escapeHtml(model.name)}${badge}</td><td>₹${money(model.mae)}</td><td>₹${money(model.rmse)}</td><td>${model.r2.toFixed(3)}</td><td>${status}</td></tr>`;
+  }).join('');
 }
+let modelComparisonRequested = false;
+async function loadModelComparison() {
+  if (modelComparisonRequested) return;
+  modelComparisonRequested = true;
+  try {
+    const modelResponse = await fetch('/api/models');
+    const modelData = await modelResponse.json();
+    if (!modelResponse.ok) throw new Error(modelData.error || 'Could not load model comparison.');
+    renderModels(modelData);
+  } catch (error) {
+    $('#model-rows').innerHTML = `<tr><td colspan="5" class="loading">${escapeHtml(error.message)} Check dependencies and dataset path.</td></tr>`;
+  }
+}
+
 async function loadDashboard() {
   try {
     const response = await fetch('/api/overview');
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Could not load dataset.');
     renderOverview(data);
-    const modelResponse = await fetch('/api/models');
-    const modelData = await modelResponse.json();
-    if (!modelResponse.ok) throw new Error(modelData.error || 'Could not train models.');
-    renderModels(modelData);
   } catch (error) {
     $('#backend-notice').hidden = false;
     $('#best-model').textContent = error.message;
-    $('#model-rows').innerHTML = `<tr><td colspan="5" class="loading">${escapeHtml(error.message)} Check dependencies and dataset path.</td></tr>`;
     $('#fuel-list').innerHTML = `<div class="loading">${escapeHtml(error.message)}</div>`;
   }
+}
+const comparisonSection = $('#comparison');
+if ('IntersectionObserver' in window) {
+  const comparisonObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) {
+      comparisonObserver.disconnect();
+      loadModelComparison();
+    }
+  }, {rootMargin: '100px'});
+  comparisonObserver.observe(comparisonSection);
+} else {
+  loadModelComparison();
 }
 const estimateForm = $('#estimate-form');
 const estimateButton = $('#predict-button');
 const estimateResult = $('#prediction-result');
 const formHint = $('#form-hint');
+const anotherButton = $('#another-button');
 let estimateTimer = null;
 let estimateRevision = 0;
+let activeQuestion = 'Estimate this car';
+
+function useExample(example) {
+  for (const [key, value] of Object.entries(example)) {
+    const field = estimateForm.elements.namedItem(key);
+    if (field) field.value = String(value);
+  }
+  activeQuestion = `Estimate a ${example.year} ${example.brand}`;
+  estimateForm.dispatchEvent(new Event('change', {bubbles: true}));
+  estimateForm.requestSubmit();
+  $('#estimate').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function addConversation(question, answer, used) {
+  const history = $('#conversation-history');
+  history.querySelector('.history-empty')?.remove();
+  const turn = document.createElement('article');
+  turn.className = 'conversation-turn';
+  const ownership = used.owners === 0 ? 'first owner' : `${used.owners} previous owner${used.owners === 1 ? '' : 's'}`;
+  const detail = `${used.car} · year ${used.year} · showroom ₹${money(used.showroom_price_lakh)} lakh · ${Number(used.kilometers).toLocaleString('en-IN')} km · ${ownership} · ${used.fuel} · ${used.seller} · ${used.transmission}`;
+  turn.innerHTML = `<div class="user-message"><b>You asked</b><p>${escapeHtml(question)}</p></div><div class="assistant-message"><b>Estimated response</b><p>Estimated selling price: <strong>₹${money(answer.price)} lakh</strong></p><small>Used: ${escapeHtml(detail)}. Powered by ${escapeHtml(answer.model)}. Estimate only, not a guaranteed market price.</small></div>`;
+  history.prepend(turn);
+}
 
 function queueEstimate() {
   clearTimeout(estimateTimer);
   const revision = ++estimateRevision;
   const complete = estimateForm.checkValidity();
   estimateButton.disabled = !complete;
+  anotherButton.hidden = true;
+  estimateResult.className = 'prediction-result';
+  estimateResult.innerHTML = '';
   if (!complete) {
-    estimateResult.className = 'prediction-result';
-    estimateResult.innerHTML = '';
-    formHint.textContent = 'Fill every field; estimate updates automatically.';
+    formHint.textContent = 'Complete all car details to ask for an estimate.';
     return;
   }
-  formHint.textContent = 'Details complete · updating your estimate…';
-  estimateResult.innerHTML = '<div class="result-meta">Updating estimate…</div>';
-  estimateResult.className = 'prediction-result show';
-  estimateTimer = setTimeout(() => requestEstimate(revision), 450);
+  formHint.textContent = 'Details complete · ready for your question.';
 }
 
 async function requestEstimate(revision) {
   const payload = Object.fromEntries(new FormData(estimateForm).entries());
   estimateButton.disabled = true;
   estimateButton.innerHTML = 'Calculating <span class="spinner"></span>';
+  formHint.textContent = 'Checking the details with the prediction model…';
+  estimateResult.innerHTML = '<div class="result-meta">Calculating your estimate…</div>';
+  estimateResult.className = 'prediction-result show';
   try {
     const response = await fetch('/api/predict', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
@@ -138,9 +198,11 @@ async function requestEstimate(revision) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Prediction failed.');
     if (revision !== estimateRevision) return;
-    estimateResult.innerHTML = `<div class="result-label">ESTIMATED SELLING PRICE</div><div class="result-value">₹${money(data.price)} lakh</div><div class="result-meta">Powered by ${escapeHtml(data.model)} · Dataset based estimate</div>`;
+    estimateResult.innerHTML = `<div class="result-label">ESTIMATED SELLING PRICE</div><div class="result-value">₹${money(data.price)} lakh</div><div class="result-meta">Powered by ${escapeHtml(data.model)} · Estimate only, not a guaranteed market price.</div>`;
     estimateResult.className = 'prediction-result show';
-    formHint.textContent = 'Estimate updates whenever you change a detail.';
+    formHint.textContent = 'The estimate is based on the car details you entered.';
+    addConversation(activeQuestion, data, data.used);
+    anotherButton.hidden = false;
   } catch (error) {
     if (revision !== estimateRevision) return;
     estimateResult.textContent = error.message;
@@ -148,7 +210,7 @@ async function requestEstimate(revision) {
   } finally {
     if (revision === estimateRevision) {
       estimateButton.disabled = !estimateForm.checkValidity();
-      estimateButton.innerHTML = 'Calculate estimate <span>↗</span>';
+      estimateButton.innerHTML = 'Ask for estimate <span>↗</span>';
     }
   }
 }
@@ -159,7 +221,17 @@ estimateForm.addEventListener('submit', (event) => {
   event.preventDefault();
   clearTimeout(estimateTimer);
   const revision = ++estimateRevision;
+  activeQuestion = `Estimate a ${estimateForm.elements.year.value} ${estimateForm.elements.brand.value}`;
   requestEstimate(revision);
+});
+anotherButton.addEventListener('click', () => {
+  estimateForm.reset();
+  estimateResult.className = 'prediction-result';
+  estimateResult.innerHTML = '';
+  anotherButton.hidden = true;
+  estimateButton.disabled = true;
+  formHint.textContent = 'Enter another car’s details to continue.';
+  $('#estimate').scrollIntoView({behavior: 'smooth', block: 'center'});
 });
 window.addEventListener('resize', () => { if (window._carwiseYearPrices) drawYearChart(window._carwiseYearPrices); });
 const originalRenderOverview = renderOverview;
